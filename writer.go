@@ -1,6 +1,8 @@
 package redis_client
 
 import (
+	"encoding/base64"
+	"fmt"
 	"github.com/pkg/errors"
 	"io"
 	"strconv"
@@ -10,35 +12,120 @@ type Writer struct {
 	writer io.Writer
 }
 
-func (w *Writer) write(value interface{}, messageType byte, contents ...[]byte) error {
+func NewWriter(w io.Writer) *Writer {
+	return &Writer{
+		writer: w,
+	}
+}
+
+func (w *Writer) write(messageType byte, contents ...[]byte) error {
 	if _, err := w.writer.Write([]byte{messageType}); err != nil {
 		return errors.Wrapf(err, "failed to write message type: %v", messageType)
 	}
 
 	for _, b := range contents {
 		if _, err := w.writer.Write(b); err != nil {
-			return errors.Wrapf(err, "failed to write value: [%v]", value)
+			return errors.Wrapf(err, "failed to write bytes, content in base64: [%v]", base64.RawStdEncoding.EncodeToString(b))
 		}
 	}
 
 	return nil
 }
 
-func (w *Writer) WriteString(value string) error {
-	stringBytes := []byte(value)
+// WriteBytes we always write byte arrays/strings as a bulk string as we don't know
+// if the data we're given is safe to be written as simple strings (that is, it doesn't have \r\n in it) and
+// checking if there is a \r\n somewhere would be too expensive. It's easier and faster to just assume it's all always
+// a bulk string.
+func (w *Writer) WriteBytes(value []byte) error {
+	if value == nil {
+		return w.WriteNil()
+	}
 
-	return w.write(value,
+	return w.write(
 		typeBulkString,
 		[]byte(strconv.FormatInt(int64(len(value)), 10)),
 		separator,
-		stringBytes,
+		value,
 		separator,
 	)
 }
 
+// WriteNil writes a nil bulk string
+func (w *Writer) WriteNil() error {
+	return w.write(typeBulkString, []byte("-1"), separator)
+}
+
+// WriteString writes a string as a byte array
+func (w *Writer) WriteString(value string) error {
+	stringBytes := []byte(value)
+
+	return w.WriteBytes(stringBytes)
+}
+
 func (w *Writer) WriteInt64(v int64) error {
-	return w.write(v,
+	return w.write(
 		typeInteger,
 		[]byte(strconv.FormatInt(v, 10)),
 		separator)
+}
+
+// WriteArray writes an array that contains int8 to int64, strings, []byte, []interface{} or nil.
+// Any other values inside the array will cause this method to return an error.
+func (w *Writer) WriteArray(values []interface{}) error {
+	if values == nil {
+		return w.write(typeArray, []byte("-1"), separator)
+	}
+
+	if err := w.write(
+		typeArray,
+		[]byte(strconv.FormatInt(int64(len(values)), 10)),
+		separator,
+	); err != nil {
+		return err
+	}
+
+	for _, v := range values {
+		switch t := v.(type) {
+		case int8:
+			if err := w.WriteInt64(int64(t)); err != nil {
+				return err
+			}
+		case int16:
+			if err := w.WriteInt64(int64(t)); err != nil {
+				return err
+			}
+		case int:
+			if err := w.WriteInt64(int64(t)); err != nil {
+				return err
+			}
+		case int32:
+			if err := w.WriteInt64(int64(t)); err != nil {
+				return err
+			}
+		case int64:
+			if err := w.WriteInt64(t); err != nil {
+				return err
+			}
+		case string:
+			if err := w.WriteString(t); err != nil {
+				return err
+			}
+		case []byte:
+			if err := w.WriteBytes(t); err != nil {
+				return err
+			}
+		case []interface{}:
+			if err := w.WriteArray(t); err != nil {
+				return err
+			}
+		case nil:
+			if err := w.WriteNil(); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("unsupported type: the value [%#v] is not supported by this client, supported types are int8 to int64, strings, []byte, nil, and []interface{} of these same types", v)
+		}
+	}
+
+	return nil
 }
