@@ -1,6 +1,7 @@
 package redis_client
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"github.com/pkg/errors"
@@ -32,22 +33,27 @@ func (w *Writer) write(messageType byte, contents ...[]byte) error {
 	return nil
 }
 
-// WriteBytes we always write byte arrays/strings as a bulk string as we don't know
-// if the data we're given is safe to be written as simple strings (that is, it doesn't have \r\n in it) and
-// checking if there is a \r\n somewhere would be too expensive. It's easier and faster to just assume it's all always
-// a bulk string.
+// WriteBytes checks if the byte array has a `\r\n` before deciding how it will write it. On a more complex client
+// you could have specific methods to write safe strings that would be faster but given we're working with the general
+// case here just assuming you can write any string to redis is a mistake, you have to be sure the string itself
+// won't contain the terminator characters.
+// Strings without a `\r\n` are written as simple strings and the ones with it go as a bulk string.
 func (w *Writer) WriteBytes(value []byte) error {
 	if value == nil {
 		return w.WriteNil()
 	}
 
-	return w.write(
-		typeBulkString,
-		[]byte(strconv.FormatInt(int64(len(value)), 10)),
-		separator,
-		value,
-		separator,
-	)
+	if bytes.Index(value, separator) >= 0 {
+		return w.write(
+			typeBulkString,
+			[]byte(strconv.FormatInt(int64(len(value)), 10)),
+			separator,
+			value,
+			separator,
+		)
+	} else {
+		return w.write(typeSimpleString, value, separator)
+	}
 }
 
 // WriteNil writes a nil bulk string
