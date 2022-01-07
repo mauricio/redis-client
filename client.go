@@ -23,6 +23,8 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) Send(values []interface{}) (*Result, error) {
+	c.conn.SetDeadline(time.Now().Add(time.Second * 5))
+
 	if err := c.writer.WriteArray(values); err != nil {
 		return nil, errors.Wrapf(err, "failed to execute operation: %v", values[0])
 	}
