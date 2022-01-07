@@ -44,7 +44,7 @@ func TestConnect(t *testing.T) {
 				{
 					input: []interface{}{
 						"GET",
-						"some-key",
+						"some-other-key",
 					},
 					output: nil,
 				},

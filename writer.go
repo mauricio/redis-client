@@ -1,7 +1,6 @@
 package redis_client
 
 import (
-	"bytes"
 	"encoding/base64"
 	"fmt"
 	"github.com/pkg/errors"
@@ -33,39 +32,19 @@ func (w *Writer) write(messageType byte, contents ...[]byte) error {
 	return nil
 }
 
-// WriteBytes checks if the byte array has a `\r\n` before deciding how it will write it. On a more complex client
-// you could have specific methods to write safe strings that would be faster but given we're working with the general
-// case here just assuming you can write any string to redis is a mistake, you have to be sure the string itself
-// won't contain the terminator characters.
-// Strings without a `\r\n` are written as simple strings and the ones with it go as a bulk string.
-func (w *Writer) WriteBytes(value []byte) error {
-	if value == nil {
-		return w.WriteNil()
-	}
-
-	if bytes.Index(value, separator) >= 0 {
-		return w.write(
-			typeBulkString,
-			[]byte(strconv.FormatInt(int64(len(value)), 10)),
-			separator,
-			value,
-			separator,
-		)
-	} else {
-		return w.write(typeSimpleString, value, separator)
-	}
+func (w *Writer) WriteBulkString(value []byte) error {
+	return w.write(
+		typeBulkString,
+		[]byte(strconv.FormatInt(int64(len(value)), 10)),
+		separator,
+		value,
+		separator,
+	)
 }
 
 // WriteNil writes a nil bulk string
 func (w *Writer) WriteNil() error {
 	return w.write(typeBulkString, []byte("-1"), separator)
-}
-
-// WriteString writes a string as a byte array
-func (w *Writer) WriteString(value string) error {
-	stringBytes := []byte(value)
-
-	return w.WriteBytes(stringBytes)
 }
 
 func (w *Writer) WriteInt64(v int64) error {
@@ -113,11 +92,11 @@ func (w *Writer) WriteArray(values []interface{}) error {
 				return err
 			}
 		case string:
-			if err := w.WriteString(t); err != nil {
+			if err := w.WriteBulkString([]byte(t)); err != nil {
 				return err
 			}
 		case []byte:
-			if err := w.WriteBytes(t); err != nil {
+			if err := w.WriteBulkString(t); err != nil {
 				return err
 			}
 		case []interface{}:
