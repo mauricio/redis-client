@@ -181,3 +181,73 @@ func readRESP(r *bufio.Scanner) (*Result, error) {
 
 	return nil, r.Err()
 }
+
+var (
+	handlers = map[int32]func(*bufio.Scanner, string) (*Result, error){
+		typeSimpleString: func(r *bufio.Scanner, s string) (*Result, error) {
+			return &Result{
+				content: s[1:],
+			}, nil
+		},
+		typeBulkString: func(r *bufio.Scanner, s string) (*Result, error) {
+			return &Result{
+				content: nil,
+			}, nil
+		},
+		typeErorr: func(r *bufio.Scanner, s string) (*Result, error) {
+			return &Result{
+				content: errors.New(s[1:]),
+			}, nil
+		},
+		typeInteger: func(r *bufio.Scanner, line string) (*Result, error) {
+			content, err := strconv.ParseInt(line[1:], 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse returned integer: %v (value: %v)", err, line)
+			}
+			return &Result{
+				content: content,
+			}, nil
+		},
+		typeArray: func(r *bufio.Scanner, line string) (*Result, error) {
+			// the first thing to be done when we find an array is to find its length, if not `-1` we then
+			// read items from the scanner until we've read all items on the array.
+			length, err := strconv.ParseInt(line[1:], 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse array length: %v (value: %v)", err, line)
+			}
+
+			if length == -1 {
+				return &Result{content: nil}, nil
+			}
+
+			contents := make([]interface{}, 0, length)
+
+			for x := int64(0); x < length; x++ {
+				result, err := readRESP(r)
+				if err != nil {
+					return nil, pkgerrors.Wrapf(err, "failed to read item %v from array", x)
+				}
+
+				contents = append(contents, result.content)
+			}
+
+			return &Result{
+				content: contents,
+			}, nil
+		},
+	}
+)
+
+func readRESPMap(r *bufio.Scanner) (*Result, error) {
+	for r.Scan() {
+		line := r.Text()
+		handler := handlers[int32(line[0])]
+		return handler(r, line)
+	}
+
+	if r.Err() == nil {
+		return nil, errors.New("scanner was empty")
+	}
+
+	return nil, r.Err()
+}

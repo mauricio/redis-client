@@ -101,3 +101,21 @@ func TestReader_Read(t *testing.T) {
 	}
 
 }
+
+func BenchmarkReadRESP(b *testing.B) {
+	value := "*2\r\n*3\r\n:1\r\n:2\r\n:3\r\n*2\r\n+Foo\r\n-Bar\r\n"
+	// run the Fib function b.N times
+	for n := 0; n < b.N; n++ {
+		reader := NewReader(strings.NewReader(value))
+		readRESP(reader.scanner)
+	}
+}
+
+func BenchmarkReadRESPMap(b *testing.B) {
+	value := "*2\r\n*3\r\n:1\r\n:2\r\n:3\r\n*2\r\n+Foo\r\n-Bar\r\n"
+	// run the Fib function b.N times
+	for n := 0; n < b.N; n++ {
+		reader := NewReader(strings.NewReader(value))
+		readRESPMap(reader.scanner)
+	}
+}
